@@ -175,30 +175,108 @@ export default function ChatWindow({
 
   const formatMarkdown = (text) => {
     if (!text) return "";
-    let formatted = text
+
+    // ── 1. Escape HTML special chars ──────────────────────────────────────────
+    let t = text
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
-    // Bullet points
-    formatted = formatted.replace(/^\s*-\s+(.+)$/gm, "<li>$1</li>");
-    formatted = formatted.replace(/(<li>.*<\/li>)/gs, "<ul>$1</ul>");
+    // ── 2. Fenced code blocks (``` ... ```) ───────────────────────────────────
+    t = t.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, code) => {
+      return `<pre class="md-code-block"><code>${code.trim()}</code></pre>`;
+    });
 
-    // Bold text
-    formatted = formatted.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    // ── 3. Headings (### ## #) ────────────────────────────────────────────────
+    t = t.replace(/^######\s+(.+)$/gm, "<h6 class='md-h6'>$1</h6>");
+    t = t.replace(/^#####\s+(.+)$/gm,  "<h5 class='md-h5'>$1</h5>");
+    t = t.replace(/^####\s+(.+)$/gm,   "<h4 class='md-h4'>$1</h4>");
+    t = t.replace(/^###\s+(.+)$/gm,    "<h3 class='md-h3'>$1</h3>");
+    t = t.replace(/^##\s+(.+)$/gm,     "<h2 class='md-h2'>$1</h2>");
+    t = t.replace(/^#\s+(.+)$/gm,      "<h1 class='md-h1'>$1</h1>");
 
-    // Code blocks
-    formatted = formatted.replace(/```(.*?)```/gs, "<pre><code>$1</code></pre>");
-    // Inline code
-    formatted = formatted.replace(/`(.*?)`/g, "<code>$1</code>");
+    // ── 4. Markdown tables ────────────────────────────────────────────────────
+    // Match a header row | ... |, a separator row |---|, and data rows | ... |
+    t = t.replace(
+      /((?:\|.+\|\n?)+)/g,
+      (block) => {
+        const rows = block.trim().split("\n").filter(Boolean);
+        if (rows.length < 2) return block;
 
-    // Blockquotes
-    formatted = formatted.replace(/^>\s*(.+)$/gm, "<blockquote>$1</blockquote>");
+        // Check second row is a separator (contains only |, -, :, spaces)
+        const isSep = /^[\|\s\-:]+$/.test(rows[1]);
+        if (!isSep) return block;
 
-    // Line breaks
-    formatted = formatted.replace(/\n/g, "<br />");
+        const headerCells = rows[0]
+          .split("|")
+          .map((c) => c.trim())
+          .filter(Boolean);
+        const headerHtml = headerCells
+          .map((c) => `<th>${c}</th>`)
+          .join("");
 
-    return <div dangerouslySetInnerHTML={{ __html: formatted }} />;
+        const bodyRows = rows.slice(2).map((row) => {
+          const cells = row
+            .split("|")
+            .map((c) => c.trim())
+            .filter(Boolean);
+          return `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+        });
+
+        return `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyRows.join("")}</tbody></table></div>`;
+      }
+    );
+
+    // ── 5. Source citations 【Source N – Chunk #N】 ───────────────────────────
+    t = t.replace(
+      /【(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)】/g,
+      `<span class="md-citation">$1</span>`
+    );
+    // Also handle plain [Source N - Chunk #N] square brackets
+    t = t.replace(
+      /\[(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)\]/g,
+      `<span class="md-citation">$1</span>`
+    );
+
+    // ── 6. Bold / Italic ──────────────────────────────────────────────────────
+    t = t.replace(/\*\*\*(.*?)\*\*\*/g, "<strong><em>$1</em></strong>");
+    t = t.replace(/\*\*(.*?)\*\*/g,     "<strong>$1</strong>");
+    t = t.replace(/\*(.*?)\*/g,         "<em>$1</em>");
+    t = t.replace(/_(.*?)_/g,           "<em>$1</em>");
+
+    // ── 7. Inline code ────────────────────────────────────────────────────────
+    t = t.replace(/`([^`]+)`/g, "<code class='md-inline-code'>$1</code>");
+
+    // ── 8. Blockquotes ────────────────────────────────────────────────────────
+    t = t.replace(/^&gt;\s*(.+)$/gm, "<blockquote class='md-blockquote'>$1</blockquote>");
+
+    // ── 9. Horizontal rules ───────────────────────────────────────────────────
+    t = t.replace(/^(?:---|\*\*\*|___)\s*$/gm, "<hr class='md-hr'/>");
+
+    // ── 10. Ordered lists ─────────────────────────────────────────────────────
+    t = t.replace(/((?:^\d+\.\s+.+$\n?)+)/gm, (block) => {
+      const items = block.trim().split("\n").map((line) =>
+        `<li>${line.replace(/^\d+\.\s+/, "")}</li>`
+      );
+      return `<ol class="md-ol">${items.join("")}</ol>`;
+    });
+
+    // ── 11. Unordered lists ───────────────────────────────────────────────────
+    t = t.replace(/((?:^[\s]*[-*+]\s+.+$\n?)+)/gm, (block) => {
+      const items = block.trim().split("\n").map((line) =>
+        `<li>${line.replace(/^[\s]*[-*+]\s+/, "")}</li>`
+      );
+      return `<ul class="md-ul">${items.join("")}</ul>`;
+    });
+
+    // ── 12. Paragraphs — double newlines → paragraph break ────────────────────
+    t = t.replace(/\n{2,}/g, "</p><p class='md-p'>");
+    t = `<p class='md-p'>${t}</p>`;
+
+    // ── 13. Single newlines within paragraphs → line break ───────────────────
+    t = t.replace(/([^>])\n([^<])/g, "$1<br/>$2");
+
+    return <div className="md-body" dangerouslySetInnerHTML={{ __html: t }} />;
   };
 
   const activeDoc = documents.find((d) => d.id === activeDocId);
