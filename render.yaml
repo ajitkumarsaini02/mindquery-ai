@@ -22,3 +22,4 @@ services:
         sync: false           # Set manually in Render dashboard
       - key: FRONTEND_URL
         sync: false           # Set to your Vercel URL e.g. https://mindquery-ai.vercel.app
+
