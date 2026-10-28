@@ -173,11 +173,30 @@ export default function ChatWindow({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  // Applies inline-only formatting: bold, italic, citations, inline code
+  // Safe to call on table cell content (no block-level tags)
+  const inlineFormat = (s) => {
+    s = s.replace(/\*\*\*(.*?)\*\*\*/g, "<strong><em>$1</em></strong>");
+    s = s.replace(/\*\*(.*?)\*\*/g,     "<strong>$1</strong>");
+    s = s.replace(/\*(.*?)\*/g,         "<em>$1</em>");
+    s = s.replace(/`([^`]+)`/g,         "<code class='md-inline-code'>$1</code>");
+    s = s.replace(/【(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)】/g, `<span class="md-citation">$1</span>`);
+    s = s.replace(/\[(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)\]/g, `<span class="md-citation">$1</span>`);
+    // Bullet-like lines within a cell (• item) → line break + bullet
+    s = s.replace(/•\s*/g, "<br/>• ");
+    // Strip leading <br/> added by the above
+    s = s.replace(/^<br\/>/, "");
+    return s;
+  };
+
   const formatMarkdown = (text) => {
     if (!text) return "";
 
+    // ── 0. Pre-process: normalise literal <br> tags the LLM sometimes outputs ─
+    let t = text.replace(/<br\s*\/?>/gi, "\n");
+
     // ── 1. Escape HTML special chars ──────────────────────────────────────────
-    let t = text
+    t = t
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
@@ -196,31 +215,21 @@ export default function ChatWindow({
     t = t.replace(/^#\s+(.+)$/gm,      "<h1 class='md-h1'>$1</h1>");
 
     // ── 4. Markdown tables ────────────────────────────────────────────────────
-    // Match a header row | ... |, a separator row |---|, and data rows | ... |
     t = t.replace(
       /((?:\|.+\|\n?)+)/g,
       (block) => {
         const rows = block.trim().split("\n").filter(Boolean);
         if (rows.length < 2) return block;
 
-        // Check second row is a separator (contains only |, -, :, spaces)
         const isSep = /^[\|\s\-:]+$/.test(rows[1]);
         if (!isSep) return block;
 
-        const headerCells = rows[0]
-          .split("|")
-          .map((c) => c.trim())
-          .filter(Boolean);
-        const headerHtml = headerCells
-          .map((c) => `<th>${c}</th>`)
-          .join("");
+        const headerCells = rows[0].split("|").map((c) => c.trim()).filter(Boolean);
+        const headerHtml  = headerCells.map((c) => `<th>${inlineFormat(c)}</th>`).join("");
 
         const bodyRows = rows.slice(2).map((row) => {
-          const cells = row
-            .split("|")
-            .map((c) => c.trim())
-            .filter(Boolean);
-          return `<tr>${cells.map((c) => `<td>${c}</td>`).join("")}</tr>`;
+          const cells = row.split("|").map((c) => c.trim()).filter(Boolean);
+          return `<tr>${cells.map((c) => `<td>${inlineFormat(c)}</td>`).join("")}</tr>`;
         });
 
         return `<div class="md-table-wrap"><table class="md-table"><thead><tr>${headerHtml}</tr></thead><tbody>${bodyRows.join("")}</tbody></table></div>`;
@@ -228,15 +237,8 @@ export default function ChatWindow({
     );
 
     // ── 5. Source citations 【Source N – Chunk #N】 ───────────────────────────
-    t = t.replace(
-      /【(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)】/g,
-      `<span class="md-citation">$1</span>`
-    );
-    // Also handle plain [Source N - Chunk #N] square brackets
-    t = t.replace(
-      /\[(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)\]/g,
-      `<span class="md-citation">$1</span>`
-    );
+    t = t.replace(/【(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)】/g, `<span class="md-citation">$1</span>`);
+    t = t.replace(/\[(Source\s*\d+\s*[-–]\s*Chunk\s*#?\d+)\]/g, `<span class="md-citation">$1</span>`);
 
     // ── 6. Bold / Italic ──────────────────────────────────────────────────────
     t = t.replace(/\*\*\*(.*?)\*\*\*/g, "<strong><em>$1</em></strong>");
@@ -256,7 +258,7 @@ export default function ChatWindow({
     // ── 10. Ordered lists ─────────────────────────────────────────────────────
     t = t.replace(/((?:^\d+\.\s+.+$\n?)+)/gm, (block) => {
       const items = block.trim().split("\n").map((line) =>
-        `<li>${line.replace(/^\d+\.\s+/, "")}</li>`
+        `<li>${inlineFormat(line.replace(/^\d+\.\s+/, ""))}</li>`
       );
       return `<ol class="md-ol">${items.join("")}</ol>`;
     });
@@ -264,7 +266,7 @@ export default function ChatWindow({
     // ── 11. Unordered lists ───────────────────────────────────────────────────
     t = t.replace(/((?:^[\s]*[-*+]\s+.+$\n?)+)/gm, (block) => {
       const items = block.trim().split("\n").map((line) =>
-        `<li>${line.replace(/^[\s]*[-*+]\s+/, "")}</li>`
+        `<li>${inlineFormat(line.replace(/^[\s]*[-*+]\s+/, ""))}</li>`
       );
       return `<ul class="md-ul">${items.join("")}</ul>`;
     });
@@ -273,7 +275,7 @@ export default function ChatWindow({
     t = t.replace(/\n{2,}/g, "</p><p class='md-p'>");
     t = `<p class='md-p'>${t}</p>`;
 
-    // ── 13. Single newlines within paragraphs → line break ───────────────────
+    // ── 13. Single newlines → line break (skip inside HTML tags) ─────────────
     t = t.replace(/([^>])\n([^<])/g, "$1<br/>$2");
 
     return <div className="md-body" dangerouslySetInnerHTML={{ __html: t }} />;
