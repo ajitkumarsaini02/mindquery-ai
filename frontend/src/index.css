@@ -1676,6 +1676,32 @@ button {
   text-overflow: ellipsis;
 }
 
+.active-doc-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.active-doc-select {
+  font-size: 12px;
+  padding: 3px 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-weight: 500;
+  max-width: 280px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.active-doc-select:hover,
+.active-doc-select:focus {
+  border-color: var(--primary);
+}
+
 .chat-header-actions {
   display: flex;
   align-items: center;

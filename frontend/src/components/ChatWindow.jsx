@@ -16,6 +16,7 @@ import axios from "axios";
 export default function ChatWindow({
   token,
   activeDocId,
+  setActiveDocId,
   documents = [],
   onSelectMessage,
   onOpenStudyTools,
@@ -298,11 +299,26 @@ export default function ChatWindow({
           <Bot className="icon-accent" size={18} />
           <div>
             <h3>MindQuery Assistant</h3>
-            {activeDoc && (
+            {documents && documents.length > 1 ? (
+              <div className="active-doc-selector-wrap">
+                <select
+                  className="active-doc-select"
+                  value={activeDocId}
+                  onChange={(e) => setActiveDocId && setActiveDocId(e.target.value)}
+                  title="Switch document to query"
+                >
+                  {documents.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.filename} ({d.chunkCount} chunks)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : activeDoc ? (
               <span className="active-doc-tag" title={activeDoc.filename}>
                 Active: {activeDoc.filename} ({activeDoc.chunkCount} chunks)
               </span>
-            )}
+            ) : null}
           </div>
         </div>
 

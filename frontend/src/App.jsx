@@ -155,6 +155,7 @@ export default function App() {
               setActiveDocId={setActiveDocId}
               onOpenChat={(docId) => handleSelectDocAndChat(docId)}
               onOpenStudyTools={(doc) => handleOpenStudyTools(doc)}
+              onDocumentsUpdated={fetchDocumentsList}
             />
           </div>
         )}

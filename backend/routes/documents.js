@@ -21,50 +21,84 @@ const upload = multer({
 });
 
 // Route: POST /api/upload
-// Accepts a PDF file, parses/chunks/embeds it, and registers metadata in MongoDB.
-router.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
+// Accepts single or multiple PDF files, parses/chunks/embeds them, and registers metadata in MongoDB.
+router.post("/upload", authMiddleware, upload.any(), async (req, res) => {
   try {
-    const file = req.file;
+    const files = req.files || (req.file ? [req.file] : []);
 
-    if (!file) {
-      return res.status(400).json({ error: "No file was uploaded." });
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: "No files were uploaded. Please select one or more PDF files." });
     }
 
-    const documentId = req.body.documentId || Math.random().toString(36).substring(7);
     const userId = req.user.id;
+    const processedDocs = [];
+    const errors = [];
 
-    console.log(`[Upload] Processing document "${file.originalname}" (${file.size} bytes) for user ${userId}`);
+    console.log(`[Upload] Processing batch of ${files.length} document(s) for user ${userId}`);
 
-    // Process PDF and index it in the vector store
-    const stats = await processPdf(file.buffer, documentId);
+    // Process each document sequentially to respect API rate limits and ensure clean indexing
+    for (const file of files) {
+      try {
+        const documentId = (files.length === 1 && req.body.documentId)
+          ? req.body.documentId
+          : Math.random().toString(36).substring(7);
 
-    // Save document metadata to MongoDB
-    const docMeta = new Document({
-      id: documentId,
-      userId: userId,
-      filename: file.originalname,
-      size: file.size,
-      chunkCount: stats.chunkCount,
-      charCount: stats.charCount,
-    });
+        console.log(`[Upload] Parsing & indexing: "${file.originalname}" (${file.size} bytes)...`);
 
-    await docMeta.save();
+        // Process PDF and index it in the vector store
+        const stats = await processPdf(file.buffer, documentId);
 
+        // Save document metadata to MongoDB
+        const docMeta = new Document({
+          id: documentId,
+          userId: userId,
+          filename: file.originalname,
+          size: file.size,
+          chunkCount: stats.chunkCount,
+          charCount: stats.charCount,
+        });
+
+        await docMeta.save();
+
+        processedDocs.push({
+          id: docMeta.id,
+          userId: docMeta.userId,
+          filename: docMeta.filename,
+          size: docMeta.size,
+          chunkCount: docMeta.chunkCount,
+          charCount: docMeta.charCount,
+          uploadedAt: docMeta.uploadedAt.toISOString(),
+        });
+      } catch (fileErr) {
+        console.error(`[Upload] Failed to process "${file.originalname}":`, fileErr.message);
+        errors.push({
+          filename: file.originalname,
+          error: fileErr.message,
+        });
+      }
+    }
+
+    if (processedDocs.length === 0) {
+      return res.status(500).json({
+        error: "Failed to process uploaded PDF(s).",
+        details: errors.map((e) => `${e.filename}: ${e.error}`).join("; "),
+        errors,
+      });
+    }
+
+    const isMultiple = processedDocs.length > 1;
     res.status(200).json({
-      message: "Document successfully parsed and indexed into MindQuery AI.",
-      document: {
-        id: docMeta.id,
-        userId: docMeta.userId,
-        filename: docMeta.filename,
-        size: docMeta.size,
-        chunkCount: docMeta.chunkCount,
-        charCount: docMeta.charCount,
-        uploadedAt: docMeta.uploadedAt.toISOString(),
-      },
+      message: isMultiple
+        ? `${processedDocs.length} documents successfully parsed and indexed into MindQuery AI.`
+        : "Document successfully parsed and indexed into MindQuery AI.",
+      document: processedDocs[0],
+      documents: processedDocs,
+      totalUploaded: processedDocs.length,
+      errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
     console.error("Upload error:", error);
-    res.status(500).json({ error: "Failed to process PDF.", details: error.message });
+    res.status(500).json({ error: "Failed to process PDF upload.", details: error.message });
   }
 });
 

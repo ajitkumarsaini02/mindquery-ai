@@ -20,6 +20,7 @@ export default function DocumentManager({
   setActiveDocId,
   onOpenChat,
   onOpenStudyTools,
+  onDocumentsUpdated,
 }) {
   const [documents, setDocuments] = useState([]);
   const [uploadStatus, setUploadStatus] = useState("idle");
@@ -53,8 +54,9 @@ export default function DocumentManager({
   };
 
   const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      uploadFile(e.target.files[0]);
+    if (e.target.files && e.target.files.length > 0) {
+      uploadFiles(Array.from(e.target.files));
+      e.target.value = "";
     }
   };
 
@@ -70,35 +72,78 @@ export default function DocumentManager({
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragOver(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      uploadFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      uploadFiles(Array.from(e.dataTransfer.files));
     }
   };
 
-  const uploadFile = async (file) => {
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+  const uploadFiles = async (files) => {
+    if (!files || files.length === 0) return;
+
+    // Validate files
+    const validPdfs = [];
+    const invalidNames = [];
+    const oversizedNames = [];
+
+    files.forEach((file) => {
+      const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      if (!isPdf) {
+        invalidNames.push(file.name);
+      } else if (file.size > 10 * 1024 * 1024) {
+        oversizedNames.push(file.name);
+      } else {
+        validPdfs.push(file);
+      }
+    });
+
+    if (validPdfs.length === 0) {
       setUploadStatus("error");
-      setStatusMessage("Only PDF documents are supported.");
+      if (invalidNames.length > 0) {
+        setStatusMessage(`Only PDF documents are supported. Invalid: ${invalidNames.join(", ")}`);
+      } else {
+        setStatusMessage("Files exceed 10MB limit. Please upload smaller PDFs.");
+      }
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadStatus("error");
-      setStatusMessage("File exceeds 10MB limit. Please upload a smaller PDF.");
-      return;
-    }
-
+    const count = validPdfs.length;
     setUploadStatus("uploading");
-    setStatusMessage("Uploading PDF to MindQuery server...");
+    setStatusMessage(
+      count === 1
+        ? `Uploading "${validPdfs[0].name}"...`
+        : `Uploading ${count} PDF documents simultaneously...`
+    );
 
     const formData = new FormData();
-    formData.append("file", file);
-    formData.append("documentId", Math.random().toString(36).substring(7));
+    validPdfs.forEach((file) => {
+      formData.append("files", file);
+    });
 
     const statusSequence = [
-      { delay: 1200, status: "processing", msg: "Parsing document layout and typography..." },
-      { delay: 2400, status: "processing", msg: "Chunking text with recursive paragraph boundaries..." },
-      { delay: 3800, status: "processing", msg: "Generating high-dimensional embeddings & indexing..." },
+      {
+        delay: 1200,
+        status: "processing",
+        msg:
+          count === 1
+            ? "Parsing document layout and typography..."
+            : `Parsing layouts for ${count} documents...`,
+      },
+      {
+        delay: 2400,
+        status: "processing",
+        msg:
+          count === 1
+            ? "Chunking text with recursive paragraph boundaries..."
+            : `Splitting ${count} files into contextual chunks...`,
+      },
+      {
+        delay: 3800,
+        status: "processing",
+        msg:
+          count === 1
+            ? "Generating high-dimensional embeddings & indexing..."
+            : `Generating vector embeddings & indexing ${count} files...`,
+      },
     ];
 
     statusSequence.forEach((item) => {
@@ -122,20 +167,36 @@ export default function DocumentManager({
       });
 
       setUploadStatus("success");
-      setStatusMessage("Document parsed, chunked, and indexed successfully!");
-      fetchDocuments();
-      if (response.data.document) {
-        setActiveDocId(response.data.document.id);
+      const uploadedDocs =
+        response.data.documents ||
+        (response.data.document ? [response.data.document] : []);
+
+      const successMsg =
+        count === 1
+          ? `"${uploadedDocs[0]?.filename || "Document"}" parsed, chunked, and indexed successfully!`
+          : `All ${uploadedDocs.length} documents successfully parsed, chunked, and indexed!`;
+
+      setStatusMessage(successMsg);
+      await fetchDocuments();
+      if (onDocumentsUpdated) {
+        onDocumentsUpdated();
+      }
+
+      if (uploadedDocs.length > 0) {
+        setActiveDocId(uploadedDocs[0].id);
       }
 
       setTimeout(() => {
         setUploadStatus("idle");
         setStatusMessage("");
-      }, 3000);
+      }, 3500);
     } catch (error) {
       console.error("Upload error:", error);
       setUploadStatus("error");
-      const errorMsg = error.response?.data?.details || error.response?.data?.error || "Failed to process PDF.";
+      const errorMsg =
+        error.response?.data?.details ||
+        error.response?.data?.error ||
+        "Failed to process PDF upload.";
       setStatusMessage(errorMsg);
     }
   };
@@ -205,14 +266,15 @@ export default function DocumentManager({
           ref={fileInputRef}
           onChange={handleFileChange}
           accept=".pdf"
+          multiple
           style={{ display: "none" }}
         />
 
         {uploadStatus === "idle" && (
           <div className="upload-prompt">
             <UploadCloud size={32} className="upload-icon" />
-            <p>Drag & drop PDF here, or <span>browse files</span></p>
-            <span className="file-hint">Standard PDFs up to 10MB</span>
+            <p>Drag & drop PDF files here (select multiple), or <span>browse files</span></p>
+            <span className="file-hint">Select 1 or multiple PDFs (up to 10MB each) • Batch indexing supported</span>
           </div>
         )}
 
