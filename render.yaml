@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: mindquery-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: USE_PINECONE
+        value: false          # Keep false unless Pinecone index is properly configured
+      - key: MONGODB_URI
+        sync: false           # Set manually in Render dashboard
+      - key: JWT_SECRET
+        sync: false           # Set manually in Render dashboard
+      - key: GEMINI_API_KEY
+        sync: false           # Set manually in Render dashboard
+      - key: GROQ_API_KEY
+        sync: false           # Set manually in Render dashboard
+      - key: FRONTEND_URL
+        sync: false           # Set to your Vercel URL e.g. https://mindquery-ai.vercel.app

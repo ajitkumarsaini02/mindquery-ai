@@ -2,10 +2,6 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import dns from "dns";
-
-// Fix Windows Node.js DNS resolution bug for mongodb+srv URLs
-dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 // Route imports
 import authRoutes from "./routes/auth.js";
@@ -20,17 +16,27 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/mindquery";
 
-// CORS: allow local dev + deployed frontend
+// CORS — allow all origins in development, or specific origins in production
+const isDev = process.env.NODE_ENV !== "production";
+
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
-  process.env.FRONTEND_URL,
+  process.env.FRONTEND_URL,       // Set this on Render: your Vercel URL
 ].filter(Boolean);
 
 app.use(
   cors({
-    origin: allowedOrigins,
-    credentials: true,
+    // In dev mode allow all; in production use the allowlist
+    origin: isDev
+      ? "*"
+      : (origin, callback) => {
+          // Allow requests with no origin (mobile apps, curl, Postman)
+          if (!origin) return callback(null, true);
+          if (allowedOrigins.includes(origin)) return callback(null, true);
+          callback(new Error(`CORS blocked: ${origin}`));
+        },
+    credentials: !isDev, // credentials only work with explicit origin, not wildcard
   })
 );
 
