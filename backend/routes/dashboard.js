@@ -47,3 +47,4 @@ router.get("/stats", authMiddleware, async (req, res) => {
 });
 
 export default router;
+

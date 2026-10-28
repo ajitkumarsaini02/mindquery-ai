@@ -38,3 +38,4 @@ router.post("/study-tools", authMiddleware, async (req, res) => {
 });
 
 export default router;
+
