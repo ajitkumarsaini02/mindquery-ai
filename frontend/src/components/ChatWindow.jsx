@@ -1,17 +1,35 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Send, Bot, User, MessageSquare, AlertCircle } from "lucide-react";
+import {
+  Send,
+  Bot,
+  User,
+  MessageSquare,
+  AlertCircle,
+  Copy,
+  Check,
+  RotateCw,
+  Sparkles,
+  BookOpen,
+} from "lucide-react";
 import axios from "axios";
 
-export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
+export default function ChatWindow({
+  token,
+  activeDocId,
+  documents = [],
+  onSelectMessage,
+  onOpenStudyTools,
+}) {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [copiedId, setCopiedId] = useState(null);
+  const [lastQuestion, setLastQuestion] = useState("");
   const messagesEndRef = useRef(null);
 
   const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-  // Load chat history when active document changes
   useEffect(() => {
     if (activeDocId) {
       loadChatHistory();
@@ -20,7 +38,6 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
     }
   }, [activeDocId, token]);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     scrollToBottom();
   }, [messages, loading]);
@@ -29,17 +46,16 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
     try {
       setError("");
       const response = await axios.get(`${API_URL}/api/chats/${activeDocId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = response.data;
-      // Convert API chat log schema to frontend chat message schema
       const loadedMsgs = [];
-      data.chats.forEach(chat => {
+      data.chats.forEach((chat) => {
         loadedMsgs.push({
           id: `q-${chat.createdAt}`,
           text: chat.question,
           sender: "user",
-          createdAt: chat.createdAt
+          createdAt: chat.createdAt,
         });
         loadedMsgs.push({
           id: `a-${chat.createdAt}`,
@@ -48,13 +64,12 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
           intent: chat.intent,
           sources: chat.sources,
           evaluation: chat.evaluation,
-          createdAt: chat.createdAt
+          createdAt: chat.createdAt,
         });
       });
       setMessages(loadedMsgs);
-      
-      // Select the last AI response by default to load inside inspector
-      const lastAiMsg = loadedMsgs.filter(m => m.sender === "ai").pop();
+
+      const lastAiMsg = loadedMsgs.filter((m) => m.sender === "ai").pop();
       if (lastAiMsg) {
         onSelectMessage(lastAiMsg);
       } else {
@@ -62,35 +77,33 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
       }
     } catch (err) {
       console.error("Failed to load chat history:", err);
-      const errorMsg = err.response?.data?.error || "Failed to load chat history. Check server logs.";
+      const errorMsg = err.response?.data?.error || "Failed to load chat history.";
       setError(errorMsg);
     }
   };
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!inputValue.trim() || loading || !activeDocId) return;
+  const handleSendQuery = async (queryText) => {
+    const textToSend = queryText || inputValue;
+    if (!textToSend.trim() || loading || !activeDocId) return;
 
-    const userText = inputValue;
     setInputValue("");
     setError("");
+    setLastQuestion(textToSend);
 
-    // Add user message to UI immediately
     const userMsg = {
       id: `user-${Date.now()}`,
-      text: userText,
+      text: textToSend,
       sender: "user",
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      // Build brief context history for RAG (last 4 QA turns)
       const chatHistoryForRag = [];
-      const aiMsgs = messages.filter(m => m.sender === "ai");
-      const userMsgs = messages.filter(m => m.sender === "user");
-      
+      const aiMsgs = messages.filter((m) => m.sender === "ai");
+      const userMsgs = messages.filter((m) => m.sender === "user");
+
       const lastTurns = Math.min(aiMsgs.length, 4);
       for (let i = aiMsgs.length - lastTurns; i < aiMsgs.length; i++) {
         if (userMsgs[i] && aiMsgs[i]) {
@@ -99,17 +112,18 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
         }
       }
 
-      const response = await axios.post(`${API_URL}/api/query`, 
+      const response = await axios.post(
+        `${API_URL}/api/query`,
         {
           documentId: activeDocId,
-          question: userText,
-          chatHistory: chatHistoryForRag
+          question: textToSend,
+          chatHistory: chatHistoryForRag,
         },
         {
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          }
+            Authorization: `Bearer ${token}`,
+          },
         }
       );
 
@@ -121,29 +135,46 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
         intent: data.intent,
         sources: data.sources,
         evaluation: data.evaluation,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       };
 
-      setMessages(prev => [...prev, aiMsg]);
-      onSelectMessage(aiMsg); // Auto-focus in Source Inspector
+      setMessages((prev) => [...prev, aiMsg]);
+      onSelectMessage(aiMsg);
     } catch (err) {
       console.error("Query submit error:", err);
-      const errorMsg = err.response?.data?.error || "Failed to fetch response. Try again.";
+      const errorMsg =
+        err.response?.data?.details ||
+        err.response?.data?.error ||
+        "Failed to fetch response. Try again.";
       setError(errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCopyAnswer = (msgId, text) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(msgId);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleRetryLast = () => {
+    if (lastQuestion) {
+      handleSendQuery(lastQuestion);
+    }
+  };
+
+  const handleClearChatView = () => {
+    setMessages([]);
+    onSelectMessage(null);
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Safe client-side markdown formatter (headings, bold, lists, code snippets)
   const formatMarkdown = (text) => {
     if (!text) return "";
-    
-    // Escape HTML tags to prevent XSS
     let formatted = text
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
@@ -161,23 +192,76 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
     // Inline code
     formatted = formatted.replace(/`(.*?)`/g, "<code>$1</code>");
 
+    // Blockquotes
+    formatted = formatted.replace(/^>\s*(.+)$/gm, "<blockquote>$1</blockquote>");
+
     // Line breaks
     formatted = formatted.replace(/\n/g, "<br />");
 
     return <div dangerouslySetInnerHTML={{ __html: formatted }} />;
   };
 
+  const activeDoc = documents.find((d) => d.id === activeDocId);
+
+  const suggestedQuestions = [
+    "Give me an executive summary of this document.",
+    "What are the core conclusions and recommendations?",
+    "List the top 3 key takeaways with source citations.",
+    "Explain the methodology and key metrics mentioned.",
+  ];
+
   return (
     <div className="card chat-window">
-      <div className="card-header">
-        <Bot className="icon-accent" size={18} />
-        <h3>DocuMind Chat Assistant</h3>
+      {/* Chat Window Header with Document Switcher */}
+      <div className="chat-window-header">
+        <div className="chat-header-title">
+          <Bot className="icon-accent" size={18} />
+          <div>
+            <h3>MindQuery Assistant</h3>
+            {activeDoc && (
+              <span className="active-doc-tag" title={activeDoc.filename}>
+                Active: {activeDoc.filename} ({activeDoc.chunkCount} chunks)
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="chat-header-actions">
+          {activeDoc && (
+            <button
+              onClick={() => onOpenStudyTools && onOpenStudyTools(activeDoc)}
+              className="btn btn-outline btn-sm"
+              title="Generate MCQs, Flashcards, or Notes"
+            >
+              <Sparkles size={14} className="icon-accent" />
+              <span>Study Tools</span>
+            </button>
+          )}
+
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearChatView}
+              className="btn btn-ghost btn-sm"
+              title="Clear visible conversation view"
+            >
+              <RotateCw size={14} />
+              <span>New Chat</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
         <div className="alert alert-danger chat-alert">
           <AlertCircle size={16} />
-          <span>{error}</span>
+          <div className="alert-content">
+            <span>{error}</span>
+            {lastQuestion && (
+              <button onClick={handleRetryLast} className="btn-alert-retry">
+                Retry Query
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -185,20 +269,36 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
       <div className="message-log">
         {!activeDocId ? (
           <div className="chat-empty">
-            <MessageSquare size={48} className="empty-icon" />
+            <MessageSquare size={44} className="empty-icon" />
             <h3>No Document Selected</h3>
-            <p>Upload a PDF document or select one from your indexed library to start chatting with it.</p>
+            <p>Upload a PDF document or choose one from your library to start questioning.</p>
           </div>
         ) : messages.length === 0 ? (
           <div className="chat-empty">
-            <Bot size={48} className="empty-icon" />
-            <h3>Chat with your PDF</h3>
-            <p>Type a question below. The routing engine will decide whether to look up answers or compile a summary.</p>
+            <Bot size={44} className="empty-icon" />
+            <h3>Ready to Query: {activeDoc?.filename}</h3>
+            <p className="empty-hint-text">
+              Ask any question, or select one of the suggested prompts below:
+            </p>
+
+            <div className="suggested-prompts-grid">
+              {suggestedQuestions.map((prompt, idx) => (
+                <button
+                  key={idx}
+                  className="suggested-prompt-chip"
+                  onClick={() => handleSendQuery(prompt)}
+                  disabled={loading}
+                >
+                  <Sparkles size={13} className="chip-icon" />
+                  <span>{prompt}</span>
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           messages.map((msg) => (
-            <div 
-              key={msg.id} 
+            <div
+              key={msg.id}
               className={`message-bubble ${msg.sender} ${msg.sender === "ai" ? "clickable" : ""}`}
               onClick={() => msg.sender === "ai" && onSelectMessage(msg)}
             >
@@ -207,22 +307,47 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
               </div>
               <div className="message-content">
                 <div className="message-text">{formatMarkdown(msg.text)}</div>
+
                 {msg.sender === "ai" && (
-                  <div className="message-meta-tag">
-                    <span>Intent: {msg.intent}</span>
-                    {msg.evaluation && (
-                      <span className={`eval-pill score-${Math.floor(msg.evaluation.score / 10) * 10}`}>
-                        Grounding: {msg.evaluation.score}%
-                      </span>
-                    )}
-                    <span className="info-tip">Click bubble to inspect RAG sources</span>
+                  <div className="message-meta-bar">
+                    <div className="meta-left">
+                      <span className="intent-tag">Intent: {msg.intent}</span>
+                      {msg.evaluation && (
+                        <span className="grounding-badge">
+                          Grounding: {msg.evaluation.score}%
+                        </span>
+                      )}
+                      {msg.sources && msg.sources.length > 0 && (
+                        <span className="sources-count-badge">
+                          <BookOpen size={11} /> {msg.sources.length} Sources Cited
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="meta-right">
+                      <button
+                        className="btn-msg-copy"
+                        title="Copy answer to clipboard"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyAnswer(msg.id, msg.text);
+                        }}
+                      >
+                        {copiedId === msg.id ? (
+                          <Check size={13} className="text-success" />
+                        ) : (
+                          <Copy size={13} />
+                        )}
+                        <span>{copiedId === msg.id ? "Copied" : "Copy"}</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
           ))
         )}
-        
+
         {loading && (
           <div className="message-bubble ai loading">
             <div className="message-avatar">
@@ -230,10 +355,11 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
             </div>
             <div className="message-content">
               <div className="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
+                <span />
+                <span />
+                <span />
               </div>
+              <span className="loading-hint-text">Synthesizing evidence-backed answer...</span>
             </div>
           </div>
         )}
@@ -241,17 +367,32 @@ export default function ChatWindow({ token, activeDocId, onSelectMessage }) {
       </div>
 
       {/* Input Tray */}
-      <form onSubmit={handleSend} className="chat-input-tray">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSendQuery();
+        }}
+        className="chat-input-tray"
+      >
         <input
           type="text"
-          placeholder={activeDocId ? "Ask a question about the document..." : "Select a document to begin..."}
+          placeholder={
+            activeDocId
+              ? `Ask anything about ${activeDoc?.filename || "this document"}...`
+              : "Select a document to begin..."
+          }
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           disabled={!activeDocId || loading}
           required
         />
-        <button type="submit" disabled={!activeDocId || loading || !inputValue.trim()}>
-          <Send size={18} />
+        <button
+          type="submit"
+          className="btn btn-send"
+          disabled={!activeDocId || loading || !inputValue.trim()}
+          title="Send query"
+        >
+          <Send size={16} />
         </button>
       </form>
     </div>

@@ -7,39 +7,56 @@ let currentSessionUser = null;
 const authListeners = new Set();
 
 const notifyListeners = () => {
-  authListeners.forEach(cb => cb(currentSessionUser));
+  authListeners.forEach((cb) => cb(currentSessionUser));
 };
 
-// Check local storage on startup for user session
-const savedToken = localStorage.getItem("documind_token");
-const savedUser = localStorage.getItem("documind_user");
+// Check local storage on startup for user session (supports new and legacy keys)
+const savedToken = localStorage.getItem("mindquery_token") || localStorage.getItem("documind_token");
+const savedUser = localStorage.getItem("mindquery_user") || localStorage.getItem("documind_user");
+
 if (savedToken && savedUser) {
   try {
     currentSessionUser = {
       ...JSON.parse(savedUser),
       async getIdToken() {
-        return localStorage.getItem("documind_token");
-      }
+        return localStorage.getItem("mindquery_token") || localStorage.getItem("documind_token");
+      },
     };
-  } catch (e) {
+  } catch (_e) {
+    localStorage.removeItem("mindquery_token");
+    localStorage.removeItem("mindquery_user");
     localStorage.removeItem("documind_token");
     localStorage.removeItem("documind_user");
   }
 }
 
+const persistAuth = (token, user) => {
+  localStorage.setItem("mindquery_token", token);
+  localStorage.setItem("mindquery_user", JSON.stringify(user));
+  // Keep legacy keys synced for seamless upgrade
+  localStorage.setItem("documind_token", token);
+  localStorage.setItem("documind_user", JSON.stringify(user));
+};
+
+const clearAuth = () => {
+  localStorage.removeItem("mindquery_token");
+  localStorage.removeItem("mindquery_user");
+  localStorage.removeItem("documind_token");
+  localStorage.removeItem("documind_user");
+};
+
 const signInUser = async (email, password) => {
   try {
     const response = await axios.post(`${API_URL}/api/auth/login`, { email, password });
     const data = response.data;
-    
-    localStorage.setItem("documind_token", data.token);
-    localStorage.setItem("documind_user", JSON.stringify(data.user));
+
+    persistAuth(data.token, data.user);
 
     currentSessionUser = {
       ...data.user,
       async getIdToken() {
         return data.token;
-      }
+      },
     };
 
     notifyListeners();
@@ -50,19 +67,18 @@ const signInUser = async (email, password) => {
   }
 };
 
-const registerUser = async (email, password) => {
+const registerUser = async (email, password, name = "") => {
   try {
-    const response = await axios.post(`${API_URL}/api/auth/register`, { email, password });
+    const response = await axios.post(`${API_URL}/api/auth/register`, { email, password, name });
     const data = response.data;
 
-    localStorage.setItem("documind_token", data.token);
-    localStorage.setItem("documind_user", JSON.stringify(data.user));
+    persistAuth(data.token, data.user);
 
     currentSessionUser = {
       ...data.user,
       async getIdToken() {
         return data.token;
-      }
+      },
     };
 
     notifyListeners();
@@ -74,15 +90,13 @@ const registerUser = async (email, password) => {
 };
 
 const logoutUser = async () => {
-  localStorage.removeItem("documind_token");
-  localStorage.removeItem("documind_user");
+  clearAuth();
   currentSessionUser = null;
   notifyListeners();
 };
 
 const subscribeAuthState = (callback) => {
   authListeners.add(callback);
-  // Trigger callback instantly with current state
   callback(currentSessionUser);
   return () => {
     authListeners.delete(callback);
@@ -96,5 +110,5 @@ export {
   registerUser,
   logoutUser,
   subscribeAuthState,
-  isMockAuth
+  isMockAuth,
 };

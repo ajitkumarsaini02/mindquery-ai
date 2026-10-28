@@ -8,7 +8,7 @@ const router = express.Router();
 const generateToken = (user) => {
   return jwt.sign(
     { id: user._id, email: user.email, name: user.name },
-    process.env.JWT_SECRET || "documind_master_secret_jwt_key_1234",
+    process.env.JWT_SECRET || "mindquery_master_secret_jwt_key_1234",
     { expiresIn: "7d" }
   );
 };

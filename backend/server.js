@@ -11,31 +11,36 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 import authRoutes from "./routes/auth.js";
 import documentRoutes from "./routes/documents.js";
 import chatRoutes from "./routes/chats.js";
+import dashboardRoutes from "./routes/dashboard.js";
+import aiToolsRoutes from "./routes/aiTools.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/documind";
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/mindquery";
 
-// CORS: allow local dev + deployed Vercel frontend
+// CORS: allow local dev + deployed frontend
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
-  process.env.FRONTEND_URL
+  process.env.FRONTEND_URL,
 ].filter(Boolean);
 
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: allowedOrigins,
+    credentials: true,
+  })
+);
 
 app.use(express.json());
 
 // Connect to MongoDB
-mongoose.connect(MONGODB_URI)
+mongoose
+  .connect(MONGODB_URI)
   .then(() => console.log(`MongoDB successfully connected to: ${MONGODB_URI}`))
-  .catch(err => {
+  .catch((err) => {
     console.error("MongoDB connection failure:", err.message);
     process.exit(1);
   });
@@ -44,8 +49,10 @@ mongoose.connect(MONGODB_URI)
 app.get("/", (req, res) => {
   res.json({
     status: "online",
-    message: "DocuMind AI MERN Backend API is active",
-    database: "MongoDB"
+    name: "MindQuery AI",
+    version: "2.0.0",
+    description: "Agentic RAG Document Assistant API",
+    database: "MongoDB",
   });
 });
 
@@ -53,6 +60,8 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api", documentRoutes);
 app.use("/api", chatRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/ai", aiToolsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -63,7 +72,7 @@ app.use((err, req, res, next) => {
 // Launch server
 app.listen(PORT, () => {
   console.log(`====================================================`);
-  console.log(`DocuMind Backend Server running on http://localhost:${PORT}`);
+  console.log(`MindQuery AI Backend Server running on http://localhost:${PORT}`);
   console.log(`Active Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(`====================================================`);
 });
